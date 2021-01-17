@@ -1,0 +1,39 @@
+{
+	"datasets": {
+		"train": {
+			"root_img": "./images_WED",
+			"root_halftone": "./results_WED",
+			"img_type": ".png",
+			"batch_size": 4,
+			"n_workers": 4,
+			"use_aug": true
+		},
+		"val": {
+			"root_img": "./dataset_cocoval",
+			"root_halftone": "./halftone_cocoval",
+			"img_type": ".tiff"
+		}
+	},
+	
+	"solver": {
+		"learning_rate": 0.0002,
+		"lr_ratio1": 0.01,
+		"lr_ratio2": 0.1,
+		"lr_steps": [],
+		"lr_gamma": 0.1,
+		"num_epochs": 10,
+		"head_start": 0,
+		"save_ckp_step": 1,
+		"pretrain": false,
+		"pretrained_path": "./pretrained_01122021_cVAE-GAN_hvs_GT_scr/",
+		"ckp_path": null,
+		"val_path": "./pretrained_01122021_cVAE-GAN_hvs_GT_scr/validation/",
+		"lambda_GT": 1.0,
+		"lambda_KL" : 0.01,
+		"lambda_hvs": 1.0,
+		"latent_dim": 16,
+		"beta1": 0.5,
+		"beta2": 0.999,
+		"use_pool": true
+	}
+}
