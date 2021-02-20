@@ -331,7 +331,7 @@ class cAE_GAN :
             ridx = torch.randperm(batch_size)
             ridx2 = torch.randperm(self.pool.shape[0])
             output_vae = torch.cat((temp[ridx[:batch_size//2],:,:,:],self.pool[ridx2[:batch_size//2],:,:,:]),dim=0)
-            self.pool = torch.cat((self.pool[ridx2[batch_size//2:],:,:,:],temp[ridx[:batch_size//2],:,:,:]),dim=0)
+            self.pool = torch.cat((self.pool[ridx2[batch_size//2:],:,:,:],temp[ridx[batch_size//2:],:,:,:]),dim=0)
         return output_vae
     
     def pooling_onesample(self,output_vae_orig) :

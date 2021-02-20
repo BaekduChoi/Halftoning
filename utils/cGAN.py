@@ -119,7 +119,6 @@ class cGAN :
 
             # scheduler updates the learning rate
             self.schedulerG.step()
-            self.schedulerE.step()
             self.schedulerD.step()
 
             self.saveckp(epoch)
@@ -251,7 +250,7 @@ class cGAN :
         for _p in self.netD.parameters() :
             _p.requires_grad_(False)
 
-        # GAN for cVAE-GAN
+        # GAN for cGAN
         if self.middle :
             pred_fake_vae1,pred_fake_vae2,pred_fake_vae3 = self.netD(output_vae_orig)
             loss_disc_vae1 = self.gan_loss(pred_fake_vae1,True)
@@ -297,7 +296,7 @@ class cGAN :
             ridx = torch.randperm(batch_size)
             ridx2 = torch.randperm(self.pool.shape[0])
             output_vae = torch.cat((temp[ridx[:batch_size//2],:,:,:],self.pool[ridx2[:batch_size//2],:,:,:]),dim=0)
-            self.pool = torch.cat((self.pool[ridx2[batch_size//2:],:,:,:],temp[ridx[:batch_size//2],:,:,:]),dim=0)
+            self.pool = torch.cat((self.pool[ridx2[batch_size//2:],:,:,:],temp[ridx[batch_size//2:],:,:,:]),dim=0)
         return output_vae
     
     def pooling_onesample(self,output_vae_orig) :
