@@ -90,6 +90,10 @@ class HalftoneDataset(Dataset) :
             self.root_halftone += '/'
             
         self.filenames = glob.glob(os.path.join(self.root_img,'*'+img_type))
+        self.filenames_bases = []
+        for _n in self.filenames :
+            self.filenames_bases.append(os.path.splitext(os.path.basename(_n))[0])
+
         self.len = len(self.filenames)
         self.augment = augment
         # data augmentation makes the dataset x8 larger
@@ -110,8 +114,8 @@ class HalftoneDataset(Dataset) :
             rot = (r%2)==0
             hf = (r//4)>0
             vf = ((r//2)%2)==0
-            img_name = self.root_img+str(idx0)+self.img_type
-            imgh_name = self.root_halftone+str(idx0)+'h'+self.img_type
+            img_name = self.root_img+self.filenames_bases[idx0]+self.img_type
+            imgh_name = self.root_halftone+self.filenames_bases[idx0]+'h'+self.img_type
             imgG = cv2.imread(img_name,0)
             imgG = augmentImage(imgG,hf,vf,rot)
             imgG = imgG.astype(np.float32)/255.0
@@ -123,8 +127,8 @@ class HalftoneDataset(Dataset) :
         # if no augmentation is used, directly use the image
         # generate both RGB and grayscale image
         else :
-            img_name = self.root_img+str(idx)+self.img_type
-            imgh_name = self.root_halftone+str(idx)+'h'+self.img_type
+            img_name = self.root_img+self.filenames_bases[idx]+self.img_type
+            imgh_name = self.root_halftone+self.filenames_bases[idx]+'h'+self.img_type
             imgG = cv2.imread(img_name,0)
             imgG = imgG.astype(np.float32)/255.0
             imgH = cv2.imread(imgh_name,0)

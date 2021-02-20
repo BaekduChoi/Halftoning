@@ -1,8 +1,8 @@
 {
 	"datasets": {
 		"train": {
-			"root_img": "./images_WED",
-			"root_halftone": "./results_WED",
+			"root_img": "./images_all",
+			"root_halftone": "./results_all",
 			"img_type": ".png",
 			"batch_size": 4,
 			"n_workers": 4,
@@ -17,19 +17,19 @@
 	
 	"solver": {
 		"learning_rate": 0.0002,
-		"lr_ratio1": 0.01,
-		"lr_ratio2": 0.1,
+		"lr_ratio": 0.5,
 		"lr_steps": [],
 		"lr_gamma": 0.1,
 		"num_epochs": 10,
 		"head_start": 0,
 		"save_ckp_step": 1,
 		"pretrain": false,
-		"pretrained_path": "./pretrained_01102021_cGAN_hvs_GT_scr/",
+		"pretrained_path": "./pretrained_cAE-GAN_hvs_b1_a1_mF_z10_E2_b4/",
 		"ckp_path": null,
-		"val_path": "./pretrained_01102021_cGAN_hvs_GT_scr/validation/",
-		"lambda_GT": 1.0,
+		"val_path": "./pretrained_cAE-GAN_hvs_b1_a1_mF_z10_E2_b4/validation/",
+		"lambda_latent": 1.0,
 		"lambda_hvs": 1.0,
+		"latent_dim": 16,
 		"beta1": 0.5,
 		"beta2": 0.999,
 		"use_pool": true
