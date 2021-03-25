@@ -68,18 +68,17 @@ def create_dataloaders(params) :
     params : output of read_json(json_file_location)
 """
 def create_test_dataloaders(params) :
-    test_root = params["datasets"]["test"]["dataroot"]
-    batch_size = int(params["datasets"]["test"]["batch_size"])
+    test_img_root = params["datasets"]["test"]["root_img"]
+    test_halftone_root = params["datasets"]["test"]["root_halftone"]
     test_img_type = params['datasets']['test']['img_type']
     n_workers = int(params['datasets']['test']['n_workers'])
-    test_img_size = int(params['datasets']['test']['img_size'])
     
-    test_dataset = GrayscaleDataset(test_root,
+    test_dataset = HalftoneDataset(test_img_root,
+                                    test_halftone_root,
                                     test_img_type,
-                                    test_img_size,
                                     False)
     test_dataloader = DataLoader(test_dataset,
-                                  batch_size=batch_size,
+                                  batch_size=1,
                                   num_workers=n_workers,
                                   shuffle=False)
     
@@ -146,10 +145,12 @@ def HVSloss(img1,img2,hvs) :
     M = img1.size(2)
     N = img1.size(3)
 
-    img1_filtered = F.conv2d(img1,hvs)
-    img1_filtered = img1_filtered[:,:,k-1:k+M-1,k-1:k+N-1]
-    img2_filtered = F.conv2d(img2,hvs)
-    img2_filtered = img2_filtered[:,:,k-1:k+M-1,k-1:k+N-1]
+    img1p = F.pad(img1,(k-1,k-1,k-1,k-1),mode='circular')
+    img2p = F.pad(img2,(k-1,k-1,k-1,k-1),mode='circular')
+    img1_filtered = F.conv2d(img1p,hvs)
+    img1_filtered = img1_filtered[:,:,2*k-2:2*k+M-2,2*k-2:2*k+N-2]
+    img2_filtered = F.conv2d(img2p,hvs)
+    img2_filtered = img2_filtered[:,:,2*k-2:2*k+M-2,2*k-2:2*k+N-2]
     
 
     return F.mse_loss(img1_filtered,img2_filtered)

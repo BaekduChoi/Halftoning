@@ -5,6 +5,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__),'.'))
 from torch import nn
 import torch
 from torch.nn import functional as F
+from torch.nn.utils import spectral_norm as SN
 
 from blocks import *
 
@@ -58,6 +59,46 @@ class PyramidDisc(nn.Module) :
             return self.out1(x1),self.out2(x2),self.out3(x3)
         else :
             return self.out1(x1),self.out3(x3)
+
+"""
+    Pyramid Discriminator v2 class
+    For each level feature extractors are shared before last convolution
+"""
+class _PyramidDisc2(nn.Module) :
+    def __init__(self,in_ch=1,middle=True) :
+        super().__init__()
+        ndf = 4
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(in_ch,ndf,kernel_size=1,stride=1),
+            nn.LeakyReLU(0.2,True),
+            nn.Dropout(),
+            nn.Conv2d(ndf,ndf*2,kernel_size=1,stride=1,bias=False),
+            nn.BatchNorm2d(ndf*2),
+            nn.LeakyReLU(0.2,True),
+            nn.Dropout(),
+            nn.Conv2d(ndf*2,ndf*4,kernel_size=4,stride=2,padding=1,bias=False,padding_mode='circular'),
+            nn.BatchNorm2d(ndf*4),
+            nn.LeakyReLU(0.2,True),
+            nn.Dropout()
+        )
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(ndf*4,ndf*8,kernel_size=4,stride=2,padding=1,bias=False,padding_mode='circular'),
+            nn.BatchNorm2d(ndf*8),
+            nn.LeakyReLU(0.2,True),
+            nn.Dropout(),
+            nn.Conv2d(ndf*8,ndf*16,kernel_size=4,stride=2,padding=1,bias=False,padding_mode='circular'),
+            nn.BatchNorm2d(ndf*16),
+            nn.LeakyReLU(0.2,True),
+            nn.Dropout()
+        )
+        self.out1 = nn.Conv2d(ndf*4,1,kernel_size=4,stride=1,padding=1,padding_mode='circular')
+        self.out2 = nn.Conv2d(ndf*16,1,kernel_size=4,stride=1,padding=1,padding_mode='circular')
+    
+    def forward(self,x,noise=0.0) :
+        x1 = self.conv1(x+noise*torch.randn_like(x))
+        x2 = self.conv2(x1)
+
+        return self.out1(x1),self.out2(x2)
 
 """
     Encoder for VAE-GAN based implementation
@@ -171,26 +212,26 @@ class EncoderWB3(nn.Module) :
     Added Dropout for slower discriminator fitting
 """
 class Discriminator(nn.Module) :
-    def __init__(self,input_ch=1,ndf=64) :
+    def __init__(self,in_ch=1,ndf=64) :
         super().__init__()
         
         self.block = nn.Sequential(
-            nn.Conv2d(input_ch,ndf,kernel_size=4,stride=2,padding=1),
+            nn.Conv2d(in_ch,ndf,kernel_size=4,stride=2,padding=1,padding_mode='circular'),
             nn.LeakyReLU(0.2,True),
             nn.Dropout(),
-            nn.Conv2d(ndf,ndf*2,kernel_size=4,stride=2,padding=1,bias=False),
+            nn.Conv2d(ndf,ndf*2,kernel_size=4,stride=2,padding=1,bias=False,padding_mode='circular'),
             nn.BatchNorm2d(ndf*2),
             nn.LeakyReLU(0.2,True),
             nn.Dropout(),
-            nn.Conv2d(ndf*2,ndf*4,kernel_size=4,stride=2,padding=1,bias=False),
+            nn.Conv2d(ndf*2,ndf*4,kernel_size=4,stride=2,padding=1,bias=False,padding_mode='circular'),
             nn.BatchNorm2d(ndf*4),
             nn.LeakyReLU(0.2,True),
             nn.Dropout(),
-            nn.Conv2d(ndf*4,ndf*8,kernel_size=4,stride=1,padding=1,bias=False),
+            nn.Conv2d(ndf*4,ndf*8,kernel_size=4,stride=1,padding=1,bias=False,padding_mode='circular'),
             nn.BatchNorm2d(ndf*8),
             nn.LeakyReLU(0.2,True),
             nn.Dropout(),
-            nn.Conv2d(ndf*8,1,kernel_size=4,stride=1,padding=1)
+            nn.Conv2d(ndf*8,1,kernel_size=4,stride=1,padding=1,padding_mode='circular')
         )
     
     def forward(self,x,noise=0.0) :
@@ -220,7 +261,7 @@ class Discriminator2(nn.Module) :
         )
     
     def forward(self,x,noise=0.0) :
-        return self.block(x,noise*torch.randn_like(x))
+        return self.block(x+noise*torch.randn_like(x))
 
 class DiscAAE(nn.Module) :
     def __init__(self,in_dim=16) :
@@ -233,8 +274,8 @@ class DiscAAE(nn.Module) :
             nn.Linear(64,1)
         )
     
-    def forward(self,x) :
-        return self.fc(x)
+    def forward(self,x,noise=0.) :
+        return self.fc(x+noise*torch.randn_like(x))
 
 """
     Loss for LSGAN
@@ -261,32 +302,35 @@ class LSGANLoss(nn.Module) :
     Replaced BN to IN everywhere, added Conv in front, replaced ResBlock with ConvBlock
 """
 class StyleNetIN(nn.Module) :
-    def __init__(self,in_ch=1,out_nch=1,ndf=16) :
+    def __init__(self,in_ch=1,out_nch=1,ndf=16,ksize=3) :
         super().__init__()
 
         self.in_ch = in_ch
         self.out_nch = out_nch
         self.ndf = ndf
+        self.norm = 'in'
+
+        padding = (ksize-1)//2
 
         self.inblock = nn.Sequential(
             nn.Conv2d(in_ch,self.ndf,1),
             nn.ReLU(True),
-            nn.Conv2d(self.ndf,self.ndf,3,1,1,padding_mode='circular'),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
             nn.ReLU(True),
             nn.Conv2d(self.ndf,2*self.ndf,3,2,1,padding_mode='circular'),
-            nn.InstanceNorm2d(2*self.ndf),
             nn.ReLU(True)
         )
-        self.block1 = ConvBlock(2*self.ndf,2*self.ndf,norm='in',act='relu',ksize=3)
-        self.block2 = ConvBlock(2*self.ndf,2*self.ndf,norm='in',act='relu',ksize=3)
-        self.block3 = ConvBlock(2*self.ndf,2*self.ndf,norm='in',act='relu',ksize=3)
-        self.block4 = ConvBlock(2*self.ndf,2*self.ndf,norm='in',act='relu',ksize=3)
+        self.block1 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+        self.block2 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+        self.block3 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+        # self.block4 = ConvBlock(2*self.ndf,2*self.ndf,norm='in',act='relu')
 
         self.blockout = nn.Sequential(
             nn.ConvTranspose2d(2*self.ndf,self.ndf,kernel_size=2,stride=2),
-            nn.InstanceNorm2d(self.ndf),
             nn.ReLU(True),
-            nn.Conv2d(self.ndf,self.ndf,3,1,1,padding_mode='circular'),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
             nn.ReLU(True),
             nn.Conv2d(self.ndf,self.out_nch,1)
         )
@@ -296,6 +340,320 @@ class StyleNetIN(nn.Module) :
         x2 = self.block1(x1)
         x3 = self.block2(x2)
         x4 = self.block3(x3)
-        x5 = self.block4(x4)
+        # x5 = self.block4(x4)
 
-        return self.blockout(x5)
+        return self.blockout(x4)
+
+
+class UnetIN(nn.Module) :
+    def __init__(self,in_ch=1,out_nch=1) :
+        super().__init__()
+
+        norm = 'in'
+
+        self.in_ch = in_ch
+        self.out_nch = out_nch
+
+        self.ndf = 12
+
+        self.inblock = nn.Sequential(
+            nn.Conv2d(in_ch,self.ndf,1,1),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.ndf,3,1,1,padding_mode='circular'),
+            nn.ReLU(True)
+        )
+
+        self.dsblock1 = DSConvBlock(self.ndf,self.ndf*2,norm=norm,act='relu',ds='mp')
+        self.dsblock2 = DSConvBlock(self.ndf*2,self.ndf*4,norm=norm,act='relu',ds='mp')
+        self.dsblock3 = DSConvBlock(self.ndf*4,self.ndf*8,norm=norm,act='relu',ds='mp')
+        self.dsblock4 = DSConvBlock(self.ndf*8,self.ndf*16,norm=norm,act='relu',ds='mp')
+
+        self.block1 = ConvBlock(self.ndf*16,self.ndf*16,norm=norm,act='relu')
+        self.block2 = ConvBlock(self.ndf*16,self.ndf*16,norm=norm,act='relu')
+        self.block3 = ConvBlock(self.ndf*16,self.ndf*16,norm=norm,act='relu')
+
+        self.usblock1 = USConvBlock(self.ndf*16,self.ndf*8,norm=norm,act='relu')
+        self.usblock2 = USConvBlock(self.ndf*16,self.ndf*4,norm=norm,act='relu')
+        self.usblock3 = USConvBlock(self.ndf*8,self.ndf*2,norm=norm,act='relu')
+        self.usblock4 = USConvBlock(self.ndf*4,self.ndf,norm=norm,act='relu')
+
+        self.blockout = nn.Sequential(
+            nn.Conv2d(self.ndf*2,self.ndf,3,1,1,padding_mode='circular'),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,out_nch,1)
+        )
+
+    def forward(self,x) :
+
+        x0 = self.inblock(x)
+        x1 = self.dsblock1(x0)
+        x2 = self.dsblock2(x1)
+        x3 = self.dsblock3(x2)
+        x4 = self.dsblock4(x3)
+
+        x4 = self.block1(x4)
+        x4 = self.block2(x4)
+        x4 = self.block3(x4)
+
+        out = self.usblock1(x4)
+        out = self.usblock2(torch.cat([out,x3],dim=1))
+        out = self.usblock3(torch.cat([out,x2],dim=1))
+        out = self.usblock4(torch.cat([out,x1],dim=1))
+
+        return self.blockout(torch.cat([out,x0],dim=1))
+
+
+class StyleNetAttn(nn.Module) :
+    def __init__(self,in_ch=1,out_nch=1,ndf=16,norm='in') :
+        super().__init__()
+
+        self.in_ch = in_ch
+        self.out_nch = out_nch
+        self.ndf = ndf
+
+        self.inblock = nn.Sequential(
+            SN(nn.Conv2d(in_ch,self.ndf,1)),
+            nn.ReLU(True),
+            SN(nn.Conv2d(self.ndf,self.ndf,3,1,1,padding_mode='circular')),
+            nn.ReLU(True),
+            SN(nn.Conv2d(self.ndf,2*self.ndf,3,2,1,padding_mode='circular')),
+            nn.ReLU(True)
+        )
+        self.block1 = SNConvBlock(2*self.ndf,2*self.ndf,norm=None,act='relu')
+        self.block2 = SNConvBlock(2*self.ndf,2*self.ndf,norm=None,act='relu')
+        self.attnblock = Attention(2*self.ndf)
+        self.block3 = SNConvBlock(2*self.ndf,2*self.ndf,norm=None,act='relu')
+        self.block4 = SNConvBlock(2*self.ndf,2*self.ndf,norm=None,act='relu')
+
+        self.blockout = nn.Sequential(
+            SN(nn.ConvTranspose2d(2*self.ndf,self.ndf,kernel_size=2,stride=2)),
+            nn.ReLU(True),
+            SN(nn.Conv2d(self.ndf,self.ndf,3,1,1,padding_mode='circular')),
+            nn.ReLU(True),
+            SN(nn.Conv2d(self.ndf,self.ndf,3,1,1,padding_mode='circular')),
+            nn.ReLU(True),
+            SN(nn.Conv2d(self.ndf,self.out_nch,1)),
+            nn.Sigmoid()
+        )
+
+    def forward(self,x) :
+        x1 = self.inblock(x)
+        x1 = self.block1(x1)
+        x1 = self.block2(x1)
+        x1 = self.attnblock(x1)
+        x1 = self.block3(x1)
+        x1 = self.block4(x1)
+
+        return self.blockout(x1)
+
+
+"""
+    Style transfer network inspired from Johnson et al with latent input
+"""
+class StyleNetLatent(nn.Module) :
+    def __init__(self,in_ch=1,out_nch=1,ndf=16,ksize=3,latent_dim=16) :
+        super().__init__()
+
+        self.in_ch = in_ch
+        self.out_nch = out_nch
+        self.ndf = ndf
+        self.norm = 'in'
+        self.latent_dim = latent_dim
+
+        padding = (ksize-1)//2
+
+        self.inblock = nn.Sequential(
+            nn.Conv2d(in_ch,self.ndf,1),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,2*self.ndf,3,2,1,padding_mode='circular'),
+            nn.ReLU(True)
+        )
+        self.block1 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+        self.block2 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+        self.block3 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+
+        self.blockout = nn.Sequential(
+            nn.ConvTranspose2d(2*self.ndf,self.ndf,kernel_size=2,stride=2),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.out_nch,1)
+        )
+
+        self.g1 = nn.Parameter(0.02*torch.randn(1))
+        self.g2 = nn.Parameter(0.02*torch.randn(1))
+        self.g3 = nn.Parameter(0.02*torch.randn(1))
+
+    def forward(self,x,z) :
+
+        z1 = z.view(-1,1,self.latent_dim,self.latent_dim)
+        
+        x1 = self.inblock(x)
+
+        target_size = [x1.size(2),x1.size(3)]
+        z1 = F.interpolate(z1,target_size,mode='bilinear')
+
+        x2 = self.block1(x1+self.g1*z1)
+        x3 = self.block2(x2+self.g2*z1)
+        x4 = self.block3(x3+self.g3*z1)
+
+        return self.blockout(x4)
+
+
+"""
+    Style transfer network inspired from Johnson et al with noise injection
+"""
+class StyleNetNoise(nn.Module) :
+    def __init__(self,in_ch=1,out_nch=1,ndf=16,ksize=3) :
+        super().__init__()
+
+        self.in_ch = in_ch
+        self.out_nch = out_nch
+        self.ndf = ndf
+        self.norm = 'in'
+
+        padding = (ksize-1)//2
+
+        self.inblock = nn.Sequential(
+            nn.Conv2d(in_ch,self.ndf,1),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,2*self.ndf,3,2,1,padding_mode='circular'),
+            nn.ReLU(True)
+        )
+        self.block1 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+        self.block2 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+        self.block3 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+
+        self.blockout = nn.Sequential(
+            nn.ConvTranspose2d(2*self.ndf,self.ndf,kernel_size=2,stride=2),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.out_nch,1)
+        )
+
+        self.g1 = nn.Parameter(0.02*torch.randn(1))
+        self.g2 = nn.Parameter(0.02*torch.randn(1))
+        self.g3 = nn.Parameter(0.02*torch.randn(1))
+        self.g4 = nn.Parameter(0.02*torch.randn(1))
+
+    def forward(self,x) :
+        
+        x1 = self.inblock(x)
+        x2 = self.block1(x1+self.g1*torch.randn_like(x1))
+        x3 = self.block2(x2+self.g2*torch.randn_like(x2))
+        x4 = self.block3(x3+self.g3*torch.randn_like(x3))
+
+        return self.blockout(x4+self.g4*torch.randn_like(x4))
+
+
+"""
+    Style transfer network inspired from Johnson et al with noise injection
+"""
+class StyleNetCIN(nn.Module) :
+    def __init__(self,in_ch=1,out_nch=1,ndf=16,ksize=3,latent_dim=16) :
+        super().__init__()
+
+        self.in_ch = in_ch
+        self.out_nch = out_nch
+        self.ndf = ndf
+        self.norm = 'cin'
+
+        padding = (ksize-1)//2
+
+        self.inblock = nn.Sequential(
+            nn.Conv2d(in_ch,self.ndf,1),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,2*self.ndf,3,2,1,padding_mode='circular'),
+            nn.ReLU(True)
+        )
+        self.block1 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+        self.block2 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+        self.block3 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+
+        self.blockout = nn.Sequential(
+            nn.ConvTranspose2d(2*self.ndf,self.ndf,kernel_size=2,stride=2),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.out_nch,1)
+        )
+
+        self.fc1 = nn.Sequential(
+            nn.Linear(latent_dim,6*self.ndf)
+        )
+        self.fc2 = nn.Sequential(
+            nn.Linear(latent_dim,6*self.ndf)
+        )
+
+    def forward(self,x,z) :
+
+        g = self.fc1(z)
+        b = self.fc2(z)
+        
+        x1 = self.inblock(x)
+        x2 = self.block1(x1,g[:,:2*self.ndf],b[:,:2*self.ndf])
+        x3 = self.block2(x2,g[:,2*self.ndf:4*self.ndf],b[:,2*self.ndf:4*self.ndf])
+        x4 = self.block3(x3,g[:,4*self.ndf:6*self.ndf],b[:,4*self.ndf:6*self.ndf])
+
+        return self.blockout(x4)
+
+"""
+    Style transfer network inspired from Johnson et al with noise injection
+"""
+class StyleNetAppend(nn.Module) :
+    def __init__(self,in_ch=1,out_nch=1,ndf=16,ksize=3,latent_dim=16) :
+        super().__init__()
+
+        self.in_ch = in_ch
+        self.out_nch = out_nch
+        self.ndf = ndf
+        self.norm = 'in'
+
+        padding = (ksize-1)//2
+
+        self.inblock = nn.Sequential(
+            nn.Conv2d(in_ch+latent_dim,self.ndf,1),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,2*self.ndf,3,2,1,padding_mode='circular'),
+            nn.ReLU(True)
+        )
+        self.block1 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+        self.block2 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+        self.block3 = ConvBlock(2*self.ndf,2*self.ndf,norm=self.norm,act='relu',ksize=ksize)
+
+        self.blockout = nn.Sequential(
+            nn.ConvTranspose2d(2*self.ndf,self.ndf,kernel_size=2,stride=2),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.ndf,ksize,1,padding,padding_mode='circular'),
+            nn.ReLU(True),
+            nn.Conv2d(self.ndf,self.out_nch,1)
+        )
+
+    def forward(self,x,z) :
+
+        z_vae = z.view(z.size(0),z.size(1),1,1).expand(z.size(0),z.size(1),x.size(2),x.size(3))
+        x0 = torch.cat([x,z_vae],1)
+        
+        x1 = self.inblock(x0)
+        x2 = self.block1(x1)
+        x3 = self.block2(x2)
+        x4 = self.block3(x3)
+
+        return self.blockout(x4)
