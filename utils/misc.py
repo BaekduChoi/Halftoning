@@ -140,7 +140,7 @@ class HVS(object) :
 """
     HVS error loss function
 """
-def HVSloss(img1,img2,hvs) :
+def _HVSloss(img1,img2,hvs) :
     k = hvs.size(2)
     M = img1.size(2)
     N = img1.size(3)
@@ -152,6 +152,23 @@ def HVSloss(img1,img2,hvs) :
     img2_filtered = F.conv2d(img2p,hvs)
     img2_filtered = img2_filtered[:,:,2*k-2:2*k+M-2,2*k-2:2*k+N-2]
     
+
+    return F.mse_loss(img1_filtered,img2_filtered)
+
+"""
+    HVS error loss function
+"""
+def HVSloss(img1,img2,hvs) :
+    k = hvs.size(2)
+    M = img1.size(2)
+    N = img1.size(3)
+
+    pd = (k-1)//2
+
+    img1p = F.pad(img1,(pd,pd,pd,pd),mode='circular')
+    img2p = F.pad(img2,(pd,pd,pd,pd),mode='circular')
+    img1_filtered = F.conv2d(img1p,hvs)
+    img2_filtered = F.conv2d(img2p,hvs)
 
     return F.mse_loss(img1_filtered,img2_filtered)
 

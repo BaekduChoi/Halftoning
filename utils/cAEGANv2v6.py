@@ -19,7 +19,7 @@ from misc import *
 def klvloss(mu,logvar) :
     return torch.mean(-0.5*torch.sum(1+logvar-mu.pow(2)-logvar.exp()))
 
-class cAEGANv3 :
+class cAEGANv2 :
     def __init__(self,json_dir,cuda=True,alpha=1.0) :
 
         torch.autograd.set_detect_anomaly(True)
@@ -28,10 +28,12 @@ class cAEGANv3 :
         self.device = torch.device('cuda') if cuda else torch.device('cpu')
         self.latent_dim = self.params['solver']['latent_dim']
 
-        self.netG = StyleNetCIN(2,1,ksize=5,latent_dim=self.latent_dim)
+        # self.netG = StyleNetAppend2(2,1,ksize=7,latent_dim=self.latent_dim,ndf=32)
+        # self.netG = TwoPathNetAppendv3(2,1,ksize=7,latent_dim=self.latent_dim,ndf=32)
+        self.netG = SimpleNetAppend(2,1,ksize=7,latent_dim=self.latent_dim,ndf=32)
         self.netD1 = Discriminator(in_ch=1)
         self.netD2 = Discriminator2(in_ch=1)
-        self.netE = EncoderWB2(in_ch=1,out_nc=self.latent_dim,ksize=5,vae=True)
+        self.netE = EncoderWB2(in_ch=1,out_nc=self.latent_dim,ksize=7,vae=True)
 
         self.netG = self.netG.to(self.device)
         self.netD1 = self.netD1.to(self.device)
@@ -115,7 +117,6 @@ class cAEGANv3 :
                                     ', D2 : %.4f'%((loss_D2)/2)+\
                                     ', HVS : %.4f'%(loss_hvs)+\
                                     ', KL : %.4f'%(loss_KL))
-                                    
                     t.update()
                     
             # print the running L1 loss for G and adversarial loss for D when one epoch is finished        

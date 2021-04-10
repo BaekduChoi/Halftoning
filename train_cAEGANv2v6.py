@@ -10,7 +10,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__),'.'))
 
 from utils.misc import read_json
-from utils.cAEGAN import cAEGAN
+from utils.cAEGANv2v6 import cAEGANv2
 import argparse
 
 """
@@ -22,7 +22,7 @@ if __name__ == '__main__' :
     args = parser.parse_args()
     json_dir = args.opt
 
-    gan = cAEGAN(json_dir,cuda=True)
+    gan = cAEGANv2(json_dir,cuda=True)
     gan.train()
             
             

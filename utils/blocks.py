@@ -165,7 +165,7 @@ class ConvCatBlockCIN(nn.Module) :
     Conv block w spectral norm
 """
 class SNConvBlock(nn.Module) :
-    def __init__(self,in_ch,out_ch,cat=False,norm=None,act='relu') :
+    def __init__(self,in_ch,out_ch,cat=False,norm=None,act='relu',ksize=7) :
         super().__init__()
 
         self.cat = cat
@@ -186,9 +186,11 @@ class SNConvBlock(nn.Module) :
             self.act = nn.LeakyReLU(0.2,True)
         else : # default = ReLU
             self.act = nn.ReLU(True)
+        
+        padding = (ksize-1)//2
             
-        self.conv1 = SN(nn.Conv2d(in_ch,out_ch,kernel_size=3,padding=1,padding_mode='circular'))
-        self.conv2 = SN(nn.Conv2d(out_ch,out_ch,kernel_size=3,padding=1,padding_mode='circular'))
+        self.conv1 = SN(nn.Conv2d(in_ch,out_ch,kernel_size=ksize,padding=padding,padding_mode='circular'))
+        self.conv2 = SN(nn.Conv2d(out_ch,out_ch,kernel_size=ksize,padding=padding,padding_mode='circular'))
     
     def forward(self,x,g=None,b=None) :
         x1 = self.conv1(x)

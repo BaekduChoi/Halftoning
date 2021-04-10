@@ -24,7 +24,7 @@ class cGANv5 :
         self.params = read_json(json_dir)
         self.device = torch.device('cuda') if cuda else torch.device('cpu')
 
-        self.netG = StyleNetIN(2,1,ksize=5)
+        self.netG = StyleNet2(2,1,ksize=7)
         # self.netG = UnetIN(1,1)
         self.netD1 = Discriminator(in_ch=1)
         self.netD2 = Discriminator2(in_ch=1)
