@@ -1,0 +1,35 @@
+{
+	"datasets": {
+		"train": {
+			"root_img": "./images_div2k_all",
+			"root_halftone": "./halftones_div2k_all",
+			"img_type": ".png",
+			"batch_size": 8,
+			"n_workers": 4,
+			"use_aug": false
+		},
+		"val": {
+			"root_img": "./dataset_cocoval",
+			"root_halftone": "./halftone_cocoval",
+			"img_type": ".tiff"
+		}
+	},
+	
+	"solver": {
+		"learning_rate": 0.00005,
+		"lr_ratio1": 0.04,
+		"lr_ratio2": 0.2,
+		"num_epochs": 20,
+		"head_start": 0,
+		"save_ckp_step": 1,
+		"pretrain": false,
+		"pretrained_path": "./pretrained_cGANwGTIN/",
+		"ckp_path": null,
+		"val_path": "./pretrained_cGANwGTIN/val/",
+		"lambda_hvs": 30.0,
+		"lambda_GT": 0.5,
+		"beta1": 0.5,
+		"beta2": 0.999,
+		"use_pool": true
+	}
+}
