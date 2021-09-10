@@ -65,10 +65,15 @@ def screenImage(img,screen) :
     screen_result = np.zeros(img.shape)
     screen_size = 256
 
+    offset_y = np.random.randint(256)
+    offset_x = np.random.randint(256)
+
     for y in range(img.shape[0]) :
         for x in range(img.shape[1]) :
-            m = y%screen_size
-            n = x%screen_size
+            # m = y%screen_size
+            # n = x%screen_size
+            m = (y+offset_y)%screen_size
+            n = (x+offset_x)%screen_size
             if img[y][x] >= float(screen[m][n])/255.0 :
                 screen_result[y][x] = 1.0
     
@@ -141,9 +146,9 @@ class HalftoneDataset(Dataset) :
         imgS = np.expand_dims(imgS,0)
         
         # convert to tensors
-        imgG = torch.from_numpy(imgG)
-        imgH = torch.from_numpy(imgH)
-        imgS = torch.from_numpy(imgS)
+        imgG = torch.from_numpy(imgG).float()
+        imgH = torch.from_numpy(imgH).float()
+        imgS = torch.from_numpy(imgS).float()
         
         # all the converted images are given as the data
         sample = {

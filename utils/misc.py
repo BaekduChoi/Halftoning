@@ -17,10 +17,10 @@ sys.path.append(os.path.join(os.path.dirname(__file__),'.'))
 import json
 import torch
 from torch.utils.data import DataLoader
-from data import HalftoneDataset
+from data import HalftoneDataset, screenImage, readScreen
 from torch.nn import functional as F
 
-# import cv2
+import cv2
 import scipy.signal
 import numpy as np
 
@@ -54,7 +54,7 @@ def create_dataloaders(params) :
                                         val_halftone_root,
                                         val_img_type)
     val_dataloader = DataLoader(val_dataset,
-                                batch_size=batch_size,
+                                batch_size=1,
                                 num_workers=n_workers,
                                 shuffle=False)
     
@@ -122,8 +122,8 @@ class HVS(object) :
                 else :
                     self.hvs[i][j] = val*(float(N)+1-dist)
                 
-        
-        self.hvs = self.hvs/np.max(self.hvs)
+        # print(np.sum(self.hvs)**2)
+        self.hvs = self.hvs/np.sum(self.hvs)
         self.N = N
     
     def __getitem__(self, keys) :
@@ -132,28 +132,10 @@ class HVS(object) :
         return self.hvs[m][n]
     
     def getHVS(self) :
-        return self.hvs
+        return self.hvs.astype(np.float32)
     
     def size(self) :
         return self.hvs.shape
-
-"""
-    HVS error loss function
-"""
-def _HVSloss(img1,img2,hvs) :
-    k = hvs.size(2)
-    M = img1.size(2)
-    N = img1.size(3)
-
-    img1p = F.pad(img1,(k-1,k-1,k-1,k-1),mode='circular')
-    img2p = F.pad(img2,(k-1,k-1,k-1,k-1),mode='circular')
-    img1_filtered = F.conv2d(img1p,hvs)
-    img1_filtered = img1_filtered[:,:,2*k-2:2*k+M-2,2*k-2:2*k+N-2]
-    img2_filtered = F.conv2d(img2p,hvs)
-    img2_filtered = img2_filtered[:,:,2*k-2:2*k+M-2,2*k-2:2*k+N-2]
-    
-
-    return F.mse_loss(img1_filtered,img2_filtered)
 
 """
     HVS error loss function
@@ -172,63 +154,53 @@ def HVSloss(img1,img2,hvs) :
 
     return F.mse_loss(img1_filtered,img2_filtered)
 
-# class Cpp(object) :
-    
-#     def __init__(self,hvs) :
-#         self.cpp = scipy.signal.correlate2d(hvs.getHVS(),hvs.getHVS())
-    
-#     def __getitem__(self,keys) :
-#         N = int((self.cpp.shape[0]-1)/2)
-#         m = keys[0]+N
-#         n = keys[1]+N
-#         return self.cpp[m][n]
-    
-#     def getCpp(self) :
-#         return self.cpp
-    
-#     def size(self) :
-#         return self.cpp.shape
+"""
+    HVS error loss function
+"""
+def HVSlossL1(img1,img2,hvs) :
+    k = hvs.size(2)
+    M = img1.size(2)
+    N = img1.size(3)
 
-# class Cpe(object) :
-#     def __init__(self,cpp,error_image) :
-#         self.cpe = scipy.signal.correlate2d(error_image,cpp.getCpp()\
-#                                            ,mode='same',boundary='wrap')
+    pd = (k-1)//2
+
+    img1p = F.pad(img1,(pd,pd,pd,pd),mode='circular')
+    img2p = F.pad(img2,(pd,pd,pd,pd),mode='circular')
+    img1_filtered = F.conv2d(img1p,hvs)
+    img2_filtered = F.conv2d(img2p,hvs)
+
+    return F.l1_loss(img1_filtered,img2_filtered)
+
+if __name__ == '__main__' :
+    img_id = str(int(np.floor(np.random.random()*10000)))
+    print(img_id)
+
+    hvs = HVS()
+    img_name = './images_div2k_all/'+img_id+'.png'
+    halftone_name = './halftones_div2k_all/'+img_id+'h.png'
+
+    img = cv2.imread(img_name,0).astype(np.float32)/255.0
+    imgH = cv2.imread(halftone_name,0).astype(np.float32)/255.0
+    imgS = screenImage(img,readScreen())
+
+    img_hvs = scipy.signal.correlate2d(img,hvs.getHVS()\
+                                           ,mode='same',boundary='wrap')
+    imgH_hvs = scipy.signal.correlate2d(imgH,hvs.getHVS()\
+                                           ,mode='same',boundary='wrap')
+    imgS_hvs = scipy.signal.correlate2d(imgS,hvs.getHVS()\
+                                           ,mode='same',boundary='wrap')
     
-#     def __getitem__(self,keys) :
-#         return self.cpe[keys[0]][keys[1]]
-    
-#     def updateCpe(self,m,n,val) :
-#         self.cpe[m][n] = val
-    
-#     def getCpe(self) :
-#         return self.cpe
-    
-#     def size(self) :
-#         return self.cpe.shape
+    E = np.sum(np.power(img_hvs-imgH_hvs,2))
+    Es = np.sum(np.power(img_hvs-imgS_hvs,2))
+    print(E.dtype)
+    print(E/256/256)
+    print(Es/256/256)
 
-# if __name__ == '__main__' :
-#     img_id = str(int(np.floor(np.random.random()*1000)))
+    img = torch.unsqueeze(torch.unsqueeze(torch.from_numpy(img),0),0)
+    imgH = torch.unsqueeze(torch.unsqueeze(torch.from_numpy(imgH),0),0)
 
-#     hvs = HVS()
-#     img_name = '../dataset_cocoval/'+img_id+'.tiff'
-#     halftone_name = '../halftone_cocoval/'+img_id+'h.tiff'
+    hvs = torch.unsqueeze(torch.unsqueeze(torch.from_numpy(hvs.getHVS().astype(np.float32)),0),0)
+    E2 = HVSloss(img,imgH,hvs).item()
 
-#     img = cv2.imread(img_name,0).astype(np.float32)/255.0
-#     imgH = cv2.imread(halftone_name,0).astype(np.float32)/255.0
-
-#     error_img = img-imgH
-#     cpp = Cpp(hvs)
-    
-#     cpe = Cpe(cpp,error_img)
-    
-#     E = np.sum(cpe.getCpe()*error_img)
-
-#     img = torch.unsqueeze(torch.unsqueeze(torch.from_numpy(img),0),0)
-#     imgH = torch.unsqueeze(torch.unsqueeze(torch.from_numpy(imgH),0),0)
-
-#     hvs = torch.unsqueeze(torch.unsqueeze(torch.from_numpy(hvs.getHVS().astype(np.float32)),0),0)
-#     E2 = HVSloss(img,imgH,hvs).item()
-
-#     print(E/256/256)
-#     print(E2)
+    print((E-E2*256*256)/E)
 

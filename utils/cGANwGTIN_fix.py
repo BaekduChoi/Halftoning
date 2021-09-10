@@ -15,37 +15,33 @@ import argparse
 from blocks import *
 from network import *
 from misc import *
+from losses import *
 
-def klvloss(mu,logvar) :
-    return torch.mean(-0.5*torch.sum(1+logvar-mu.pow(2)-logvar.exp()))
-
-class cAEGANv2 :
+class cGANwGT :
     def __init__(self,json_dir,cuda=True,alpha=1.0) :
 
         torch.autograd.set_detect_anomaly(True)
 
         self.params = read_json(json_dir)
         self.device = torch.device('cuda') if cuda else torch.device('cpu')
-        self.latent_dim = self.params['solver']['latent_dim']
 
-        self.netG = StyleNetAppend2(2,1,ksize=7,latent_dim=self.latent_dim,ndf=32)
+        self.netG = SimpleNetDenseIN(in_ch=2,out_nch=1)
         self.netD1 = Discriminator(in_ch=1)
         self.netD2 = Discriminator2(in_ch=1)
-        self.netE = EncoderWB2(in_ch=1,out_nc=self.latent_dim,ksize=5,vae=True)
 
         self.netG = self.netG.to(self.device)
         self.netD1 = self.netD1.to(self.device)
         self.netD2 = self.netD2.to(self.device)
-        self.netE = self.netE.to(self.device)
 
         self.alpha = alpha
+
+        self.noise = 0.2
 
     def getparams(self) :
         # reading the hyperparameter values from the json file
         self.lr = self.params['solver']['learning_rate']
         self.lambda_hvs = self.params['solver']['lambda_hvs']
         self.lambda_GT = self.params['solver']['lambda_GT']
-        self.lambda_kl = self.params['solver']['lambda_kl']
         self.lr_ratio1 = self.params['solver']['lr_ratio1']
         self.lr_ratio2 = self.params['solver']['lr_ratio2']
         self.beta1 = self.params['solver']['beta1']
@@ -60,7 +56,6 @@ class cAEGANv2 :
         self.optimizerD1 = optim.Adam(self.netD1.parameters(),lr=self.lr*self.lr_ratio1,betas=self.betas)
         self.optimizerD2 = optim.Adam(self.netD2.parameters(),lr=self.lr*self.lr_ratio2,betas=self.betas)
         self.optimizerG = optim.Adam(self.netG.parameters(),lr=self.lr,betas=self.betas)
-        self.optimizerE = optim.Adam(self.netE.parameters(),lr=self.lr,betas=self.betas)
 
     def train(self) :
         trainloader, valloader = create_dataloaders(self.params)
@@ -83,6 +78,9 @@ class cAEGANv2 :
             self.running_loss_D1 = 0.0
             self.running_loss_D2 = 0.0
 
+            self.noise = max(self.noise-0.04,0.0)
+            print('Noise level = %.2f'%(self.noise))
+
             # tqdm setup is borrowed from SRFBN github
             # https://github.com/Paper99/SRFBN_CVPR19
             with tqdm(total=len(trainloader),\
@@ -96,7 +94,7 @@ class cAEGANv2 :
                     inputS = inputS.to(self.device)
                     imgsH = imgsH.to(self.device)
 
-                    output_vae_orig, loss_GT, loss_hvs, loss_KL = self.fitGE(inputG,inputS,imgsH)
+                    output_vae_orig, loss_GT, loss_hvs, loss_d1, loss_d2 = self.fitG(inputG,inputS,imgsH)
 
                     # use a pool of generated images for training discriminator
                     if self.use_pool :
@@ -110,11 +108,10 @@ class cAEGANv2 :
                     loss_D1, loss_D2 = self.fitD(imgsH,output_vae,epoch)
                     
                     # tqdm update
-                    t.set_postfix_str('Losses : GT : %.4f'%(loss_GT)+\
-                                    ', D1 : %.4f'%((loss_D1)/2)+\
-                                    ', D2 : %.4f'%((loss_D2)/2)+\
-                                    ', HVS : %.4f'%(loss_hvs)+\
-                                    ', KL : %.4f'%(loss_KL))
+                    t.set_postfix_str('G loss : %.4f'%(loss_GT)+\
+                                    ', D1 loss : %.4f'%(loss_d1)+\
+                                    ', D2 loss : %.4f'%(loss_d2)+\
+                                    ', G HVS loss : %.4f'%(loss_hvs))
                     t.update()
                     
             # print the running L1 loss for G and adversarial loss for D when one epoch is finished        
@@ -170,6 +167,7 @@ class cAEGANv2 :
 
         if self.pretrain :
             self.loadckp()    
+            self.noise = max(0.2-self.start_epochs*0.04,0)
     
     def test_final(self) :
         self.loadckp_test()
@@ -200,9 +198,7 @@ class cAEGANv2 :
                     inputS = data['screened']
                     inputS = inputS.to(self.device)
 
-                    z_rand = torch.randn(inputG.size(0),self.latent_dim).to(self.device)
-
-                    outputs = self.netG(torch.cat([inputG,inputS],dim=1),z_rand)
+                    outputs = self.netG(torch.cat([inputG,inputS],dim=1))
                     
                     img_size1,img_size2 = outputs.shape[2], outputs.shape[3]
                     #print(outputs.shape)
@@ -243,9 +239,7 @@ class cAEGANv2 :
                 inputS = data['screened']
                 inputS = inputS.to(self.device)
 
-                z_rand = torch.randn(inputG.size(0),self.latent_dim).to(self.device)
-
-                outputs = self.netG(torch.cat([inputG,inputS],dim=1),z_rand)
+                outputs = self.netG(torch.cat([inputG,inputS],dim=1))
                 
                 img_size1,img_size2 = outputs.shape[2], outputs.shape[3]
                 #print(outputs.shape)
@@ -279,7 +273,7 @@ class cAEGANv2 :
     
     def saveckp(self,epoch) :
         if (epoch+1)%self.save_ckp_step == 0 :
-            path = self.pretrained_path+'/ckp_epoch'+str(epoch+1)+'.ckp'
+            path = self.pretrained_path+'/epoch'+str(epoch+1)+'.ckp'
             if self.use_pool :
                 torch.save({
                     'epoch':epoch+1,
@@ -289,8 +283,6 @@ class cAEGANv2 :
                     'optimizerD1_state_dict':self.optimizerD1.state_dict(),
                     'modelD2_state_dict':self.netD2.state_dict(),
                     'optimizerD2_state_dict':self.optimizerD2.state_dict(),
-                    'modelE_state_dict':self.netE.state_dict(),
-                    'optimizerE_state_dict':self.optimizerE.state_dict(),
                     'loss_G':self.running_loss_G,
                     'loss_D1':self.running_loss_D1,
                     'loss_D2':self.running_loss_D2,
@@ -305,8 +297,6 @@ class cAEGANv2 :
                     'optimizerD1_state_dict':self.optimizerD1.state_dict(),
                     'modelD2_state_dict':self.netD2.state_dict(),
                     'optimizerD2_state_dict':self.optimizerD2.state_dict(),
-                    'modelE_state_dict':self.netE.state_dict(),
-                    'optimizerE_state_dict':self.optimizerE.state_dict(),
                     'loss_G':self.running_loss_G,
                     'loss_D1':self.running_loss_D1,
                     'loss_D2':self.running_loss_D2,
@@ -317,11 +307,9 @@ class cAEGANv2 :
         self.ckp_load = torch.load(self.params['solver']['ckp_path'])
         self.start_epochs = self.ckp_load['epoch']
         self.netG.load_state_dict(self.ckp_load['modelG_state_dict'])
-        self.netE.load_state_dict(self.ckp_load['modelE_state_dict'])
         self.netD1.load_state_dict(self.ckp_load['modelD1_state_dict'])
         self.netD2.load_state_dict(self.ckp_load['modelD2_state_dict'])
         self.optimizerG.load_state_dict(self.ckp_load['optimizerG_state_dict'])
-        self.optimizerE.load_state_dict(self.ckp_load['optimizerE_state_dict'])
         self.optimizerD1.load_state_dict(self.ckp_load['optimizerD1_state_dict'])
         self.optimizerD2.load_state_dict(self.ckp_load['optimizerD2_state_dict'])
         lossG_load = self.ckp_load['loss_G']
@@ -334,18 +322,10 @@ class cAEGANv2 :
         print('Resumed training - epoch '+str(self.start_epochs+1)+' with G loss = '\
             +str(lossG_load)+', D1 loss = '+str(lossD1_load)+', and D2 loss = '+str(lossD2_load))
 
-    def fitGE(self,inputG,inputS,imgsH) :
-
-        # z_rand = torch.randn(inputG.size(0),self.latent_dim*self.latent_dim).to(self.device)
-        mu,logvar = self.netE(imgsH)
-        loss_KL = klvloss(mu,logvar)
-
-        std = torch.exp(0.5*logvar)
-        eps = torch.randn_like(std)
-        z_vae = mu+eps*std
+    def fitG(self,inputG,inputS,imgsH) :
 
         # generated image for cGAN
-        output_vae_orig = self.netG(torch.cat([inputG,inputS],dim=1),z_vae)
+        output_vae_orig = self.netG(torch.cat([inputG,inputS],dim=1))
 
         for _p in self.netD1.parameters() :
             _p.requires_grad_(False)
@@ -363,8 +343,7 @@ class cAEGANv2 :
         loss_hvs = HVSloss(output_vae_orig,inputG,self.hvs)
         loss_GT = self.GT_loss(output_vae_orig,imgsH)
 
-        # loss_G = self.lambda_GT*loss_GT+loss_disc_vae+self.lambda_hvs*loss_hvs
-        loss_G = self.lambda_GT*loss_GT+loss_disc_vae+self.lambda_hvs*loss_hvs+self.lambda_kl*loss_KL
+        loss_G = self.lambda_GT*loss_GT+loss_disc_vae+self.lambda_hvs*loss_hvs
         
         # generator weight update
         # for the generator, all the loss terms are used
@@ -379,7 +358,7 @@ class cAEGANv2 :
         # check only the L1 loss with GT colorization for the fitting procedure
         self.running_loss_G += loss_GT.item()/self.num_batches
 
-        return output_vae_orig, loss_GT.item(), loss_hvs.item(), loss_KL.item()
+        return output_vae_orig, loss_GT.item(), loss_hvs.item(), loss_disc_vae1.item(), loss_disc_vae2.item()
 
     def pooling(self,output_vae_orig) :
         if self.pool is None :
@@ -426,10 +405,10 @@ class cAEGANv2 :
         self.optimizerD1.zero_grad()
         self.optimizerD2.zero_grad()
 
-        pred_real1 = self.netD1(imgsH,noise=0.2)
-        pred_real2 = self.netD2(imgsH,noise=0.2)
-        pred_fake1 = self.netD1(output_vae,noise=0.2)
-        pred_fake2 = self.netD2(output_vae,noise=0.2)
+        pred_real1 = self.netD1(imgsH,noise=self.noise)
+        pred_real2 = self.netD2(imgsH,noise=self.noise)
+        pred_fake1 = self.netD1(output_vae,noise=self.noise)
+        pred_fake2 = self.netD2(output_vae,noise=self.noise)
 
         loss_real1 = self.gan_loss(pred_real1,True)
         loss_real2 = self.gan_loss(pred_real2,True)

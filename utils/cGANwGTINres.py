@@ -15,8 +15,9 @@ import argparse
 from blocks import *
 from network import *
 from misc import *
+from losses import *
 
-class cGANv5 :
+class cGANwGT :
     def __init__(self,json_dir,cuda=True,alpha=1.0) :
 
         torch.autograd.set_detect_anomaly(True)
@@ -24,8 +25,7 @@ class cGANv5 :
         self.params = read_json(json_dir)
         self.device = torch.device('cuda') if cuda else torch.device('cpu')
 
-        self.netG = StyleNet2(2,1,ksize=7)
-        # self.netG = UnetIN(1,1)
+        self.netG = SimpleNetDenseRes(in_ch=2,out_nch=1)
         self.netD1 = Discriminator(in_ch=1)
         self.netD2 = Discriminator2(in_ch=1)
 
@@ -34,6 +34,8 @@ class cGANv5 :
         self.netD2 = self.netD2.to(self.device)
 
         self.alpha = alpha
+
+        self.noise = 0.2
 
     def getparams(self) :
         # reading the hyperparameter values from the json file
@@ -76,6 +78,9 @@ class cGANv5 :
             self.running_loss_D1 = 0.0
             self.running_loss_D2 = 0.0
 
+            self.noise = max(self.noise-0.04,0.0)
+            print('Noise level = %.2f'%(self.noise))
+
             # tqdm setup is borrowed from SRFBN github
             # https://github.com/Paper99/SRFBN_CVPR19
             with tqdm(total=len(trainloader),\
@@ -89,7 +94,7 @@ class cGANv5 :
                     inputS = inputS.to(self.device)
                     imgsH = imgsH.to(self.device)
 
-                    output_vae_orig, loss_GT, loss_hvs = self.fitG(inputG,inputS,imgsH)
+                    output_vae_orig, loss_GT, loss_hvs, loss_d1, loss_d2 = self.fitG(inputG,inputS,imgsH)
 
                     # use a pool of generated images for training discriminator
                     if self.use_pool :
@@ -104,8 +109,8 @@ class cGANv5 :
                     
                     # tqdm update
                     t.set_postfix_str('G loss : %.4f'%(loss_GT)+\
-                                    ', D1 loss : %.4f'%((loss_D1)/2)+\
-                                    ', D2 loss : %.4f'%((loss_D2)/2)+\
+                                    ', D1 loss : %.4f'%(loss_d1)+\
+                                    ', D2 loss : %.4f'%(loss_d2)+\
                                     ', G HVS loss : %.4f'%(loss_hvs))
                     t.update()
                     
@@ -162,6 +167,7 @@ class cGANv5 :
 
         if self.pretrain :
             self.loadckp()    
+            self.noise = max(0.2-self.start_epochs*0.04,0)
     
     def test_final(self) :
         self.loadckp_test()
@@ -267,7 +273,7 @@ class cGANv5 :
     
     def saveckp(self,epoch) :
         if (epoch+1)%self.save_ckp_step == 0 :
-            path = self.pretrained_path+'/ckp_epoch'+str(epoch+1)+'.ckp'
+            path = self.pretrained_path+'/epoch'+str(epoch+1)+'.ckp'
             if self.use_pool :
                 torch.save({
                     'epoch':epoch+1,
@@ -352,7 +358,7 @@ class cGANv5 :
         # check only the L1 loss with GT colorization for the fitting procedure
         self.running_loss_G += loss_GT.item()/self.num_batches
 
-        return output_vae_orig, loss_GT.item(), loss_hvs.item()
+        return output_vae_orig, loss_GT.item(), loss_hvs.item(), loss_disc_vae1.item(), loss_disc_vae2.item()
 
     def pooling(self,output_vae_orig) :
         if self.pool is None :
@@ -399,10 +405,10 @@ class cGANv5 :
         self.optimizerD1.zero_grad()
         self.optimizerD2.zero_grad()
 
-        pred_real1 = self.netD1(imgsH,noise=0.2)
-        pred_real2 = self.netD2(imgsH,noise=0.2)
-        pred_fake1 = self.netD1(output_vae,noise=0.2)
-        pred_fake2 = self.netD2(output_vae,noise=0.2)
+        pred_real1 = self.netD1(imgsH,noise=self.noise)
+        pred_real2 = self.netD2(imgsH,noise=self.noise)
+        pred_fake1 = self.netD1(output_vae,noise=self.noise)
+        pred_fake2 = self.netD2(output_vae,noise=self.noise)
 
         loss_real1 = self.gan_loss(pred_real1,True)
         loss_real2 = self.gan_loss(pred_real2,True)

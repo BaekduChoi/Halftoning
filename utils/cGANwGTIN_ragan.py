@@ -15,8 +15,9 @@ import argparse
 from blocks import *
 from network import *
 from misc import *
+from losses import *
 
-class cGANv11 :
+class cGANwGTIN :
     def __init__(self,json_dir,cuda=True,alpha=1.0) :
 
         torch.autograd.set_detect_anomaly(True)
@@ -24,7 +25,7 @@ class cGANv11 :
         self.params = read_json(json_dir)
         self.device = torch.device('cuda') if cuda else torch.device('cpu')
 
-        self.netG = SimpleNet2(in_ch=1,out_nch=1)
+        self.netG = SimpleNetDenseIN(in_ch=2,out_nch=1)
         self.netD1 = Discriminator(in_ch=1)
         self.netD2 = Discriminator2(in_ch=1)
 
@@ -33,6 +34,8 @@ class cGANv11 :
         self.netD2 = self.netD2.to(self.device)
 
         self.alpha = alpha
+
+        self.noise = 0.2
 
     def getparams(self) :
         # reading the hyperparameter values from the json file
@@ -58,7 +61,7 @@ class cGANv11 :
         trainloader, valloader = create_dataloaders(self.params)
 
         # here we use least squares adversarial loss following cycleGAN paper
-        self.gan_loss = LSGANLoss(self.device)
+        self.gan_loss = RaLSGANLoss(self.device)
         # GT loss
         self.GT_loss = nn.L1Loss()
 
@@ -75,6 +78,8 @@ class cGANv11 :
             self.running_loss_D1 = 0.0
             self.running_loss_D2 = 0.0
 
+            self.noise = max(self.noise-0.04,0.0)
+
             # tqdm setup is borrowed from SRFBN github
             # https://github.com/Paper99/SRFBN_CVPR19
             with tqdm(total=len(trainloader),\
@@ -88,7 +93,7 @@ class cGANv11 :
                     inputS = inputS.to(self.device)
                     imgsH = imgsH.to(self.device)
 
-                    output_vae_orig, loss_GT, loss_hvs = self.fitG(inputG,inputS,imgsH)
+                    output_vae_orig, loss_GT, loss_hvs, loss_d1, loss_d2 = self.fitG(inputG,inputS,imgsH)
 
                     # use a pool of generated images for training discriminator
                     if self.use_pool :
@@ -103,8 +108,8 @@ class cGANv11 :
                     
                     # tqdm update
                     t.set_postfix_str('G loss : %.4f'%(loss_GT)+\
-                                    ', D1 loss : %.4f'%((loss_D1)/2)+\
-                                    ', D2 loss : %.4f'%((loss_D2)/2)+\
+                                    ', D1 loss : %.4f'%(loss_d1)+\
+                                    ', D2 loss : %.4f'%(loss_d2)+\
                                     ', G HVS loss : %.4f'%(loss_hvs))
                     t.update()
                     
@@ -160,7 +165,8 @@ class cGANv11 :
         self.pool_size = 64*self.batch_size
 
         if self.pretrain :
-            self.loadckp()    
+            self.loadckp()
+            self.noise = max(0.2-self.start_epochs*0.04,0)
     
     def test_final(self) :
         self.loadckp_test()
@@ -185,10 +191,13 @@ class cGANv11 :
             with tqdm(total=len(testloader),\
                     desc='Testing.. ',miniters=1) as t:
                 for ii,data in enumerate(testloader) :
+                    inputG = data['img']
+                    inputG = inputG.to(self.device)
+
                     inputS = data['screened']
                     inputS = inputS.to(self.device)
 
-                    outputs = self.netG(inputS)
+                    outputs = self.netG(torch.cat([inputG,inputS],dim=1))
                     
                     img_size1,img_size2 = outputs.shape[2], outputs.shape[3]
                     #print(outputs.shape)
@@ -223,10 +232,13 @@ class cGANv11 :
         with torch.no_grad() :
             count = 0
             for ii,data in enumerate(testloader) :
+                inputG = data['img']
+                inputG = inputG.to(self.device)
+
                 inputS = data['screened']
                 inputS = inputS.to(self.device)
 
-                outputs = self.netG(inputS)
+                outputs = self.netG(torch.cat([inputG,inputS],dim=1))
                 
                 img_size1,img_size2 = outputs.shape[2], outputs.shape[3]
                 #print(outputs.shape)
@@ -312,7 +324,7 @@ class cGANv11 :
     def fitG(self,inputG,inputS,imgsH) :
 
         # generated image for cGAN
-        output_vae_orig = self.netG(inputS)
+        output_vae_orig = self.netG(torch.cat([inputG,inputS],dim=1))
 
         for _p in self.netD1.parameters() :
             _p.requires_grad_(False)
@@ -323,8 +335,10 @@ class cGANv11 :
         # GAN for cGAN
         pred_fake_vae1 = self.netD1(output_vae_orig)
         pred_fake_vae2 = self.netD2(output_vae_orig)
-        loss_disc_vae1 = self.gan_loss(pred_fake_vae1,True)
-        loss_disc_vae2 = self.gan_loss(pred_fake_vae2,True)
+        pred_real_vae1 = self.netD1(imgsH)
+        pred_real_vae2 = self.netD2(imgsH)
+        loss_disc_vae1 = self.gan_loss(pred_fake_vae1,pred_real_vae1)
+        loss_disc_vae2 = self.gan_loss(pred_fake_vae2,pred_real_vae2)
         loss_disc_vae = loss_disc_vae1+loss_disc_vae2
 
         loss_hvs = HVSloss(output_vae_orig,inputG,self.hvs)
@@ -345,7 +359,7 @@ class cGANv11 :
         # check only the L1 loss with GT colorization for the fitting procedure
         self.running_loss_G += loss_GT.item()/self.num_batches
 
-        return output_vae_orig, loss_GT.item(), loss_hvs.item()
+        return output_vae_orig, loss_GT.item(), loss_hvs.item(), loss_disc_vae1.item(), loss_disc_vae2.item()
 
     def pooling(self,output_vae_orig) :
         if self.pool is None :
@@ -392,24 +406,18 @@ class cGANv11 :
         self.optimizerD1.zero_grad()
         self.optimizerD2.zero_grad()
 
-        pred_real1 = self.netD1(imgsH,noise=0.2)
-        pred_real2 = self.netD2(imgsH,noise=0.2)
-        pred_fake1 = self.netD1(output_vae,noise=0.2)
-        pred_fake2 = self.netD2(output_vae,noise=0.2)
+        pred_real1 = self.netD1(imgsH,noise=self.noise)
+        pred_real2 = self.netD2(imgsH,noise=self.noise)
+        pred_fake1 = self.netD1(output_vae,noise=self.noise)
+        pred_fake2 = self.netD2(output_vae,noise=self.noise)
 
-        loss_real1 = self.gan_loss(pred_real1,True)
-        loss_real2 = self.gan_loss(pred_real2,True)
+        loss_adv1 = self.gan_loss(pred_real1,pred_fake1)
+        loss_adv2 = self.gan_loss(pred_real2,pred_fake2)
 
-        loss_fake1 = self.gan_loss(pred_fake1,False)
-        loss_fake2 = self.gan_loss(pred_fake2,False)
+        loss_D = loss_adv1+loss_adv2
 
-        loss_real = loss_real1+loss_real2
-        loss_fake = loss_fake1+loss_fake2
-
-        loss_D = loss_real+loss_fake
-
-        loss_D1 = loss_real1.item()+loss_fake1.item()
-        loss_D2 = loss_real2.item()+loss_fake2.item()
+        loss_D1 = loss_adv1.item()
+        loss_D2 = loss_adv2.item()
 
         # backpropagation for the discriminator
         loss_D.backward()
