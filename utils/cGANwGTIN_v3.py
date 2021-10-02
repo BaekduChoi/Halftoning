@@ -18,14 +18,14 @@ from misc import *
 from losses import *
 
 class cGANwGT :
-    def __init__(self,json_dir,cuda=True,alpha=1.0) :
+    def __init__(self,json_dir,cuda=True,noise=0.2,depth=6,ndf=32) :
 
         torch.autograd.set_detect_anomaly(True)
 
         self.params = read_json(json_dir)
         self.device = torch.device('cuda') if cuda else torch.device('cpu')
 
-        self.netG = SimpleNetDenseIN(in_ch=2,out_nch=1)
+        self.netG = SimpleNetDenseINDepth2(in_ch=2,out_nch=1,ndf=ndf,depth=depth)
         self.netD1 = Discriminator(in_ch=1)
         self.netD2 = Discriminator2(in_ch=1)
 
@@ -33,15 +33,14 @@ class cGANwGT :
         self.netD1 = self.netD1.to(self.device)
         self.netD2 = self.netD2.to(self.device)
 
-        self.alpha = alpha
-
-        self.noise = 0.2
+        self.noise = noise
 
     def getparams(self) :
         # reading the hyperparameter values from the json file
         self.lr = self.params['solver']['learning_rate']
         self.lambda_hvs = self.params['solver']['lambda_hvs']
         self.lambda_GT = self.params['solver']['lambda_GT']
+        self.lambda_mid = self.params['solver']['lambda_mid']
         self.lr_ratio1 = self.params['solver']['lr_ratio1']
         self.lr_ratio2 = self.params['solver']['lr_ratio2']
         self.beta1 = self.params['solver']['beta1']
@@ -53,9 +52,9 @@ class cGANwGT :
         # set up the optimizers and schedulers
         # two are needed for each - one for generator and one for discriminator
         # note for discriminator smaller learning rate is used (scaled by lr_ratio)
-        self.optimizerD1 = optim.Adam(self.netD1.parameters(),lr=self.lr*self.lr_ratio1,betas=self.betas)
-        self.optimizerD2 = optim.Adam(self.netD2.parameters(),lr=self.lr*self.lr_ratio2,betas=self.betas)
-        self.optimizerG = optim.Adam(self.netG.parameters(),lr=self.lr,betas=self.betas)
+        self.optimizerD1 = optim.Adam(self.netD1.parameters(),lr=self.lr*self.lr_ratio1,betas=self.betas,amsgrad=True)
+        self.optimizerD2 = optim.Adam(self.netD2.parameters(),lr=self.lr*self.lr_ratio2,betas=self.betas,amsgrad=True)
+        self.optimizerG = optim.Adam(self.netG.parameters(),lr=self.lr,betas=self.betas,amsgrad=True)
 
     def train(self) :
         trainloader, valloader = create_dataloaders(self.params)
@@ -78,7 +77,6 @@ class cGANwGT :
             self.running_loss_D1 = 0.0
             self.running_loss_D2 = 0.0
 
-            self.noise = max(self.noise-0.04,0.0)
             print('Noise level = %.2f'%(self.noise))
 
             # tqdm setup is borrowed from SRFBN github
@@ -127,6 +125,7 @@ class cGANwGT :
                 self.val(valloader,self.val_path,16,epoch)
 
             self.saveckp(epoch)
+            self.noise = max(self.noise-0.04,0.0)
 
         
     def inittrain(self) :
@@ -167,7 +166,7 @@ class cGANwGT :
 
         if self.pretrain :
             self.loadckp()    
-            self.noise = max(0.2-self.start_epochs*0.04,0)
+            self.noise = max(self.noise-self.start_epochs*0.04,0)
     
     def test_final(self) :
         self.loadckp_test()
@@ -198,7 +197,7 @@ class cGANwGT :
                     inputS = data['screened']
                     inputS = inputS.to(self.device)
 
-                    outputs = self.netG(torch.cat([inputG,inputS],dim=1))
+                    outputs, _ = self.netG(torch.cat([inputG,inputS],dim=1))
                     
                     img_size1,img_size2 = outputs.shape[2], outputs.shape[3]
                     #print(outputs.shape)
@@ -239,7 +238,7 @@ class cGANwGT :
                 inputS = data['screened']
                 inputS = inputS.to(self.device)
 
-                outputs = self.netG(torch.cat([inputG,inputS],dim=1))
+                outputs, _ = self.netG(torch.cat([inputG,inputS],dim=1))
                 
                 img_size1,img_size2 = outputs.shape[2], outputs.shape[3]
                 #print(outputs.shape)
@@ -325,7 +324,7 @@ class cGANwGT :
     def fitG(self,inputG,inputS,imgsH) :
 
         # generated image for cGAN
-        output_vae_orig = self.netG(torch.cat([inputG,inputS],dim=1))
+        output_vae_orig, output_mid = self.netG(torch.cat([inputG,inputS],dim=1))
 
         for _p in self.netD1.parameters() :
             _p.requires_grad_(False)
@@ -342,8 +341,9 @@ class cGANwGT :
 
         loss_hvs = HVSloss(output_vae_orig,inputG,self.hvs)
         loss_GT = self.GT_loss(output_vae_orig,imgsH)
+        loss_GT_mid = self.GT_loss(output_mid,imgsH)
 
-        loss_G = self.lambda_GT*loss_GT+loss_disc_vae+self.lambda_hvs*loss_hvs
+        loss_G = self.lambda_GT*loss_GT+loss_disc_vae+self.lambda_hvs*loss_hvs+self.lambda_mid*loss_GT_mid
         
         # generator weight update
         # for the generator, all the loss terms are used
@@ -351,7 +351,7 @@ class cGANwGT :
 
         loss_G.backward()
 
-        torch.nn.utils.clip_grad_norm_(self.netG.parameters(),1.0)
+        torch.nn.utils.clip_grad_norm_(self.netG.parameters(),0.1)
 
         # backpropagation for generator and encoder
         self.optimizerG.step()
@@ -426,8 +426,8 @@ class cGANwGT :
 
         # backpropagation for the discriminator
         loss_D.backward()
-        torch.nn.utils.clip_grad_norm_(self.netD1.parameters(),1.0)
-        torch.nn.utils.clip_grad_norm_(self.netD2.parameters(),1.0)
+        torch.nn.utils.clip_grad_norm_(self.netD1.parameters(),0.1)
+        torch.nn.utils.clip_grad_norm_(self.netD2.parameters(),0.1)
         # check for headstart generator learning
         if epoch >= self.head_start :
             self.optimizerD1.step()

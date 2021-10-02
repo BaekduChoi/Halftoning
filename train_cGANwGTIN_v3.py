@@ -10,7 +10,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__),'.'))
 
 from utils.misc import read_json
-from utils.cGANwGTIN_fix import cGANwGT
+from utils.cGANwGTIN_v3 import cGANwGT
 import argparse
 
 """
@@ -22,7 +22,7 @@ if __name__ == '__main__' :
     args = parser.parse_args()
     json_dir = args.opt
 
-    gan = cGANwGT(json_dir,cuda=True)
+    gan = cGANwGT(json_dir,cuda=True,depth=6,ndf=32)
     gan.train()
             
             

@@ -358,3 +358,48 @@ class ConvBlockBNEDense(nn.Module) :
         out = self.conv4(x4)
 
         return out
+
+class ConvBlockINEDenseSN(nn.Module) :
+    def __init__(self,n_ch,act='relu',ksize=3,norm='in') :
+        super().__init__()
+
+        padding = (ksize-1)//2
+        
+        if act == 'lrelu' :
+            self.act = nn.LeakyReLU(0.2,True)
+        else : # default = ReLU
+            self.act = nn.ReLU(True)
+            
+        self.conv1 = SN(nn.Conv2d(n_ch,n_ch,kernel_size=ksize,padding=padding,padding_mode='circular'))
+        self.conv2 = SN(nn.Conv2d(2*n_ch,n_ch,kernel_size=ksize,padding=padding,padding_mode='circular'))
+        self.conv3 = SN(nn.Conv2d(3*n_ch,n_ch,kernel_size=ksize,padding=padding,padding_mode='circular'))
+        self.conv4 = SN(nn.Conv2d(4*n_ch,n_ch,kernel_size=ksize,padding=padding,padding_mode='circular'))
+        
+        self.norm = norm
+        if norm == 'in' :
+            self.norm1 = nn.InstanceNorm2d(n_ch)
+            self.norm2 = nn.InstanceNorm2d(n_ch)
+            self.norm3 = nn.InstanceNorm2d(n_ch)
+    
+    def forward(self,x,g=None,b=None) :
+        x1 = self.conv1(x)
+        x1 = self.act(x1)
+        if self.norm == 'in' :
+            x1 = self.norm1(x1)
+
+        x2 = torch.cat([x1,x],dim=1)
+        x2 = self.conv2(x2)
+        x2 = self.act(x2)
+        if self.norm == 'in' :
+            x2 = self.norm2(x2)
+
+        x3 = torch.cat([x2,x1,x],dim=1)
+        x3 = self.conv3(x3)
+        x3 = self.act(x3)
+        if self.norm == 'in' :
+            x3 = self.norm3(x3)
+
+        x4 = torch.cat([x3,x2,x1,x],dim=1)
+        out = self.conv4(x4)
+
+        return out
