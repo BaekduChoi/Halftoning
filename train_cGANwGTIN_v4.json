@@ -4,28 +4,30 @@
 			"root_img": "./images_div2k_all",
 			"root_halftone": "./halftones_div2k_all",
 			"img_type": ".png",
-			"batch_size": 4,
-			"n_workers": 4,
+			"batch_size": 8,
+			"n_workers": 8,
 			"use_aug": false
 		},
 		"val": {
-			"root_img": "./val_imgs_patch",
-			"root_halftone": "./val_halftones_patch",
-			"img_type": ".png"
+			"root_img": "./dataset_cocoval",
+			"root_halftone": "./halftone_cocoval",
+			"img_type": ".tiff"
 		}
 	},
 	
 	"solver": {
 		"learning_rate": 0.00005,
+		"lr_step": 5,
+		"lr_gamma": 0.9,
 		"lr_ratio1": 0.04,
 		"lr_ratio2": 0.2,
-		"num_epochs": 20,
+		"num_epochs": 60,
 		"head_start": 0,
 		"save_ckp_step": 1,
-		"pretrain": false,
-		"pretrained_path": "./pretrained_cGANwGTINndf32dp6_v2/",
-		"ckp_path": null,
-		"val_path": "./pretrained_cGANwGTINndf32dp6_v2/val/",
+		"pretrain": true,
+		"pretrained_path": "./pretrained_cGANwGTINndf32dp6_v4_2/",
+		"ckp_path": "./pretrained_cGANwGTINndf32dp6_v4_2/epoch30.ckp",
+		"val_path": "./pretrained_cGANwGTINndf32dp6_v4_2/val/",
 		"lambda_hvs": 30.0,
 		"lambda_GT": 0.5,
 		"lambda_mid": 0.5,

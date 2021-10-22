@@ -33,7 +33,7 @@ class ConvBlock(nn.Module) :
         if norm == 'bn' :
             self.norm = nn.BatchNorm2d(out_ch)
         elif norm == 'in' :
-            self.norm = nn.InstanceNorm2d(out_ch)
+            self.norm = nn.InstanceNorm2d(out_ch,affine=True)
         elif norm == 'cin' :
             self.norm = ConditionalInstanceNorm(out_ch)
         else :
@@ -73,7 +73,7 @@ class DSConvBlock(nn.Module) :
         if norm == 'bn' :
             self.norm = nn.BatchNorm2d(out_ch)
         elif norm == 'in' :
-            self.norm = nn.InstanceNorm2d(out_ch)
+            self.norm = nn.InstanceNorm2d(out_ch,affine=True)
         else :
             self.norm = None
         
@@ -113,7 +113,7 @@ class USConvBlock(nn.Module) :
         if norm == 'bn' :
             self.norm = nn.BatchNorm2d(out_ch)
         elif norm == 'in' :
-            self.norm = nn.InstanceNorm2d(out_ch)
+            self.norm = nn.InstanceNorm2d(out_ch,affine=True)
         else :
             self.norm = None
         
@@ -175,7 +175,7 @@ class SNConvBlock(nn.Module) :
         if norm == 'bn' :
             self.norm = nn.BatchNorm2d(out_ch)
         elif norm == 'in' :
-            self.norm = nn.InstanceNorm2d(out_ch)
+            self.norm = nn.InstanceNorm2d(out_ch,affine=True)
         elif norm == 'cin' :
             self.norm = ConditionalInstanceNorm(out_ch)
         else :
@@ -258,8 +258,8 @@ class ConvBlockINE(nn.Module) :
         self.conv1 = nn.Conv2d(in_ch,out_ch,kernel_size=ksize,padding=padding,padding_mode='circular')
         self.conv2 = nn.Conv2d(out_ch,out_ch,kernel_size=ksize,padding=padding,padding_mode='circular')
 
-        self.norm1 = nn.InstanceNorm2d(out_ch)
-        self.norm2 = nn.InstanceNorm2d(out_ch)
+        self.norm1 = nn.InstanceNorm2d(out_ch,affine=True)
+        self.norm2 = nn.InstanceNorm2d(out_ch,affine=True)
     
     def forward(self,x,g=None,b=None) :
         x1 = self.conv1(x)
@@ -289,9 +289,9 @@ class ConvBlockINEDense(nn.Module) :
         
         self.norm = norm
         if norm == 'in' :
-            self.norm1 = nn.InstanceNorm2d(n_ch)
-            self.norm2 = nn.InstanceNorm2d(n_ch)
-            self.norm3 = nn.InstanceNorm2d(n_ch)
+            self.norm1 = nn.InstanceNorm2d(n_ch,affine=True)
+            self.norm2 = nn.InstanceNorm2d(n_ch,affine=True)
+            self.norm3 = nn.InstanceNorm2d(n_ch,affine=True)
     
     def forward(self,x,g=None,b=None) :
         x1 = self.conv1(x)
@@ -316,7 +316,7 @@ class ConvBlockINEDense(nn.Module) :
 
         return out
 
-class ConvBlockBNEDense(nn.Module) :
+class ConvBlockLNEDense(nn.Module) :
     def __init__(self,n_ch,act='relu',ksize=3) :
         super().__init__()
 
@@ -331,27 +331,24 @@ class ConvBlockBNEDense(nn.Module) :
         self.conv2 = nn.Conv2d(2*n_ch,n_ch,kernel_size=ksize,padding=padding,padding_mode='circular')
         self.conv3 = nn.Conv2d(3*n_ch,n_ch,kernel_size=ksize,padding=padding,padding_mode='circular')
         self.conv4 = nn.Conv2d(4*n_ch,n_ch,kernel_size=ksize,padding=padding,padding_mode='circular')
-
-        self.norm1 = nn.BatchNorm2d(n_ch)
-        self.norm2 = nn.BatchNorm2d(n_ch)
-        self.norm3 = nn.BatchNorm2d(n_ch)
+        
+        self.norm1 = nn.GroupNorm(1,n_ch,affine=True)
+        self.norm2 = nn.GroupNorm(1,n_ch,affine=True)
+        self.norm3 = nn.GroupNorm(1,n_ch,affine=True)
     
     def forward(self,x,g=None,b=None) :
         x1 = self.conv1(x)
         x1 = self.act(x1)
-        
         x1 = self.norm1(x1)
 
         x2 = torch.cat([x1,x],dim=1)
         x2 = self.conv2(x2)
         x2 = self.act(x2)
-        
         x2 = self.norm2(x2)
 
         x3 = torch.cat([x2,x1,x],dim=1)
         x3 = self.conv3(x3)
         x3 = self.act(x3)
-        
         x3 = self.norm3(x3)
 
         x4 = torch.cat([x3,x2,x1,x],dim=1)
@@ -377,9 +374,9 @@ class ConvBlockINEDenseSN(nn.Module) :
         
         self.norm = norm
         if norm == 'in' :
-            self.norm1 = nn.InstanceNorm2d(n_ch)
-            self.norm2 = nn.InstanceNorm2d(n_ch)
-            self.norm3 = nn.InstanceNorm2d(n_ch)
+            self.norm1 = nn.InstanceNorm2d(n_ch,affine=True)
+            self.norm2 = nn.InstanceNorm2d(n_ch,affine=True)
+            self.norm3 = nn.InstanceNorm2d(n_ch,affine=True)
     
     def forward(self,x,g=None,b=None) :
         x1 = self.conv1(x)
@@ -403,3 +400,35 @@ class ConvBlockINEDenseSN(nn.Module) :
         out = self.conv4(x4)
 
         return out
+
+"""
+    Dense block w. spatially-adaptive conditional normalization
+    similar to that in SPADE (https://github.com/NVlabs/SPADE/blob/master/)
+"""
+class DenseWSAN(nn.Module) :
+    def __init__(self,block,instance_norm=True,n_ch=None) :
+        super().__init__()
+        self.block = block
+        self.instance_norm = instance_norm
+        if self.instance_norm :
+            self.norm = nn.InstanceNorm2d(n_ch)
+    
+    def forward(self,x,g,b) :
+        x = self.block(x)
+        if self.instance_norm :
+            x = self.norm(x)
+        return x*(1+g)+b
+
+"""
+    Pixelnorm borrowed from https://github.com/huangzh13/StyleGAN.pytorch/blob/master/models/CustomLayers.py
+    Added affine transformation after normalization
+"""
+class PixelNormAffine(nn.Module):
+    def __init__(self, epsilon=1e-8):
+        super().__init__()
+        self.epsilon = epsilon
+        self.gamma = nn.Parameter(1.0)
+        self.beta = nn.Parameter(0.0)
+
+    def forward(self, x):
+        return self.gamma * (x * torch.rsqrt(torch.mean(x ** 2, dim=1, keepdim=True) + self.epsilon)) + self.beta

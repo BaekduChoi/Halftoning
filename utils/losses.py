@@ -63,7 +63,7 @@ class HingeGANLossD(object) :
         else :
             loss = F.relu(1+prediction)
 
-        return loss
+        return loss.mean()
 
 """
     Loss for hingeGAN generator

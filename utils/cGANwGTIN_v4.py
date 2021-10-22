@@ -25,7 +25,7 @@ class cGANwGT :
         self.params = read_json(json_dir)
         self.device = torch.device('cuda') if cuda else torch.device('cpu')
 
-        self.netG = SimpleNetDenseINDepth2(in_ch=2,out_nch=1,ndf=ndf,depth=depth)
+        self.netG = SimpleNetDenseINDepth3(in_ch=2,out_nch=1,ndf=ndf,depth=depth)
         self.netD1 = Discriminator(in_ch=1)
         self.netD2 = Discriminator2(in_ch=1)
 
@@ -38,6 +38,8 @@ class cGANwGT :
     def getparams(self) :
         # reading the hyperparameter values from the json file
         self.lr = self.params['solver']['learning_rate']
+        self.lr_step = self.params['solver']['lr_step']
+        self.lr_gamma = self.params['solver']['lr_gamma']
         self.lambda_hvs = self.params['solver']['lambda_hvs']
         self.lambda_GT = self.params['solver']['lambda_GT']
         self.lambda_mid = self.params['solver']['lambda_mid']
@@ -55,6 +57,11 @@ class cGANwGT :
         self.optimizerD1 = optim.Adam(self.netD1.parameters(),lr=self.lr*self.lr_ratio1,betas=self.betas,amsgrad=True)
         self.optimizerD2 = optim.Adam(self.netD2.parameters(),lr=self.lr*self.lr_ratio2,betas=self.betas,amsgrad=True)
         self.optimizerG = optim.Adam(self.netG.parameters(),lr=self.lr,betas=self.betas,amsgrad=True)
+
+        self.lr_sche_ftn = lambda epoch : 1.0 if epoch < self.lr_step else (self.lr_gamma)**(epoch-self.lr_step)
+        self.schedulerD1 = optim.lr_scheduler.LambdaLR(self.optimizerD1,self.lr_sche_ftn)
+        self.schedulerD2 = optim.lr_scheduler.LambdaLR(self.optimizerD2,self.lr_sche_ftn)
+        self.schedulerG = optim.lr_scheduler.LambdaLR(self.optimizerG,self.lr_sche_ftn)
 
     def train(self) :
         trainloader, valloader = create_dataloaders(self.params)
@@ -124,6 +131,12 @@ class cGANwGT :
                 print('Validating - trying generator on random images and saving')
                 self.val(valloader,self.val_path,16,epoch)
 
+            self.schedulerG.step()
+            self.schedulerD1.step()
+            self.schedulerD2.step()
+            
+            print(self.schedulerG.get_last_lr())
+
             self.saveckp(epoch)
             self.noise = max(self.noise-0.04,0.0)
 
@@ -167,6 +180,7 @@ class cGANwGT :
         if self.pretrain :
             self.loadckp()    
             self.noise = max(self.noise-self.start_epochs*0.04,0)
+            print(self.schedulerG.get_last_lr())
     
     def test_final(self) :
         self.loadckp_test()
@@ -278,10 +292,13 @@ class cGANwGT :
                     'epoch':epoch+1,
                     'modelG_state_dict':self.netG.state_dict(),
                     'optimizerG_state_dict':self.optimizerG.state_dict(),
+                    'schedulerG_state_dict':self.schedulerG.state_dict(),
                     'modelD1_state_dict':self.netD1.state_dict(),
                     'optimizerD1_state_dict':self.optimizerD1.state_dict(),
+                    'schedulerD1_state_dict':self.schedulerD1.state_dict(),
                     'modelD2_state_dict':self.netD2.state_dict(),
                     'optimizerD2_state_dict':self.optimizerD2.state_dict(),
+                    'schedulerD2_state_dict':self.schedulerD2.state_dict(),
                     'loss_G':self.running_loss_G,
                     'loss_D1':self.running_loss_D1,
                     'loss_D2':self.running_loss_D2,
@@ -292,10 +309,13 @@ class cGANwGT :
                     'epoch':epoch+1,
                     'modelG_state_dict':self.netG.state_dict(),
                     'optimizerG_state_dict':self.optimizerG.state_dict(),
+                    'schedulerG_state_dict':self.schedulerG.state_dict(),
                     'modelD1_state_dict':self.netD1.state_dict(),
                     'optimizerD1_state_dict':self.optimizerD1.state_dict(),
+                    'schedulerD1_state_dict':self.schedulerD1.state_dict(),
                     'modelD2_state_dict':self.netD2.state_dict(),
                     'optimizerD2_state_dict':self.optimizerD2.state_dict(),
+                    'schedulerD2_state_dict':self.schedulerD2.state_dict(),
                     'loss_G':self.running_loss_G,
                     'loss_D1':self.running_loss_D1,
                     'loss_D2':self.running_loss_D2,
@@ -311,6 +331,9 @@ class cGANwGT :
         self.optimizerG.load_state_dict(self.ckp_load['optimizerG_state_dict'])
         self.optimizerD1.load_state_dict(self.ckp_load['optimizerD1_state_dict'])
         self.optimizerD2.load_state_dict(self.ckp_load['optimizerD2_state_dict'])
+        self.schedulerG.load_state_dict(self.ckp_load['schedulerG_state_dict'])
+        self.schedulerD1.load_state_dict(self.ckp_load['schedulerD1_state_dict'])
+        self.schedulerD2.load_state_dict(self.ckp_load['schedulerD2_state_dict'])
         lossG_load = self.ckp_load['loss_G']
         lossD1_load = self.ckp_load['loss_D1']
         lossD2_load = self.ckp_load['loss_D2']
@@ -351,7 +374,7 @@ class cGANwGT :
 
         loss_G.backward()
 
-        torch.nn.utils.clip_grad_norm_(self.netG.parameters(),0.1)
+        torch.nn.utils.clip_grad_norm_(self.netG.parameters(),1.0)
 
         # backpropagation for generator and encoder
         self.optimizerG.step()
@@ -426,8 +449,8 @@ class cGANwGT :
 
         # backpropagation for the discriminator
         loss_D.backward()
-        torch.nn.utils.clip_grad_norm_(self.netD1.parameters(),0.1)
-        torch.nn.utils.clip_grad_norm_(self.netD2.parameters(),0.1)
+        torch.nn.utils.clip_grad_norm_(self.netD1.parameters(),1.0)
+        torch.nn.utils.clip_grad_norm_(self.netD2.parameters(),1.0)
         # check for headstart generator learning
         if epoch >= self.head_start :
             self.optimizerD1.step()

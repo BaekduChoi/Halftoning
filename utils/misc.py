@@ -16,7 +16,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__),'.'))
 
 import json
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, ConcatDataset
 from data import HalftoneDataset, screenImage, readScreen
 from torch.nn import functional as F
 
@@ -44,6 +44,46 @@ def create_dataloaders(params) :
                                         train_halftone_root,
                                         train_img_type,
                                         train_use_aug)
+    train_dataloader = DataLoader(train_dataset,
+                                  batch_size=batch_size,
+                                  num_workers=n_workers,
+                                  shuffle=True)
+    
+    # no need to use augmentation for validation data
+    val_dataset = HalftoneDataset(val_img_root,
+                                        val_halftone_root,
+                                        val_img_type)
+    val_dataloader = DataLoader(val_dataset,
+                                batch_size=1,
+                                num_workers=n_workers,
+                                shuffle=False)
+    
+    return train_dataloader, val_dataloader
+
+"""
+    Added extra smooth patch image / halftone pairs
+"""
+def create_dataloaders_extra(params) :
+    train_img_root = params["datasets"]["train"]["root_img"]
+    train_halftone_root = params["datasets"]["train"]["root_halftone"]
+    batch_size = int(params["datasets"]["train"]["batch_size"])
+    train_img_type = params['datasets']['train']['img_type']
+    n_workers = int(params['datasets']['train']['n_workers'])
+    train_use_aug = params['datasets']['train']['use_aug']
+    
+    val_img_root = params["datasets"]["val"]["root_img"]
+    val_halftone_root = params["datasets"]["val"]["root_halftone"]
+    val_img_type = params['datasets']['val']['img_type']
+    
+    train_dataset1 = HalftoneDataset(train_img_root,
+                                        train_halftone_root,
+                                        train_img_type,
+                                        train_use_aug)
+    train_dataset2 = HalftoneDataset('./img_patch/',
+                                        './halftone_patch/',
+                                        '.png',
+                                        train_use_aug)
+    train_dataset = ConcatDataset([train_dataset1,train_dataset2])
     train_dataloader = DataLoader(train_dataset,
                                   batch_size=batch_size,
                                   num_workers=n_workers,
