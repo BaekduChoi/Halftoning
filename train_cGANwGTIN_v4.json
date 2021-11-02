@@ -24,7 +24,7 @@
 		"num_epochs": 60,
 		"head_start": 0,
 		"save_ckp_step": 1,
-		"pretrain": true,
+		"pretrain": false,
 		"pretrained_path": "./pretrained_cGANwGTINndf32dp6_v4_2/",
 		"ckp_path": "./pretrained_cGANwGTINndf32dp6_v4_2/epoch30.ckp",
 		"val_path": "./pretrained_cGANwGTINndf32dp6_v4_2/val/",
