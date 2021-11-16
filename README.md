@@ -11,25 +11,15 @@ Please note that halftone images cannot be viewed or saved with lossy compressio
 
 
 
-This project aims to mimic the results of digital halftoning from DBS [1] algorithm; it is known to generate high quality halftone images but is slow due to its iterative nature.
+This project aims to mimic the results of digital halftoning from [DBS](https://ieeexplore.ieee.org/document/877215) algorithm; it is known to generate high quality halftone images but is slow due to its iterative nature.
 The images generated with DBS algorithm are marked as 'GT' in the example folder. For instance, to process the 'lake' image in the example folder, it takes around 800s.
 
-One known method of mimicking DBS algorithm is to use a DBS-generated screen, which is generated following description in [2]. However, it results in rather noisy halftone image.
+One known method of mimicking DBS algorithm is to use a DBS-generated screen, which is generated following description in [here](https://ieeexplore.ieee.org/document/559555). However, it results in rather noisy halftone image.
 
 Our cGAN, while not as smooth as halftone from DBS algorithm, is much less noisy compared to the screened image, and takes much less time compared to DBS since it only requires a single forward pass of the generator.
 
 
 
-The training images are generated using DIV2K dataset [3] as the original images. The images are first divided into 256x256 patches and then DBS is performed on them.
-
-
-
-References
-
-[1] 
-
-[2]
-
-[3] [DIV2K dataset](https://data.vision.ee.ethz.ch/cvl/DIV2K/)
+The training images are generated using [DIV2K dataset](https://data.vision.ee.ethz.ch/cvl/DIV2K/) as the original images. The images are first divided into 256x256 patches and then DBS is performed on them.
 
 
