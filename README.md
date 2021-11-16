@@ -1,6 +1,6 @@
 # Digital halftoning using conditional generative adversarial networks
 
-This is an implementation of digital halftoning using cGANs. 
+This is an implementation of digital halftoning using cGANs in [PyTorch](https://pytorch.org/). 
 
 Digital halftoning is a image translation problem where the image is represented using only 0 or 1 as pixel values instead of continuous (ignoring quantization) pixel values.
 The aim is to preserve texture in the original image as much as possible while simultaneously minimizing noise inherent due to the binarization.
