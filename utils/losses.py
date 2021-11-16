@@ -7,8 +7,6 @@ import torch
 from torch.nn import functional as F
 from torch.nn.utils import spectral_norm as SN
 
-from blocks import *
-
 def klvloss(mu,logvar) :
     return torch.mean(-0.5*torch.sum(1+logvar-mu.pow(2)-logvar.exp()))
 
