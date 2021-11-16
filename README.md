@@ -17,7 +17,6 @@ The images generated with DBS algorithm are marked as 'GT' in the example folder
 One known method of mimicking DBS algorithm is to use a DBS-generated screen, which is generated following description in [this paper](https://ieeexplore.ieee.org/document/559555). However, it results in rather noisy halftone image.
 
 Our cGAN, while not as smooth as halftone from DBS algorithm, is much less noisy compared to the screened image, and takes much less time compared to DBS since it only requires a single forward pass of the generator.
-For failure cases of our cGAN, please see the 'rose' image.
 
 
 
