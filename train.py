@@ -10,7 +10,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__),'.'))
 
 from utils.misc import read_json
-from utils.cGANwGTIN_v4 import cGANwGT
+from utils.cGAN import cGANwGT
 import argparse
 
 """
