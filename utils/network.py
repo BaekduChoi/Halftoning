@@ -8,8 +8,6 @@ from torch.nn import functional as F
 from torch.nn import init as init
 from torch.nn.utils import spectral_norm as SN
 
-from blocks import *
-
 """
     Discriminator for GAN-based implementation
     Added Dropout for slower discriminator fitting
@@ -67,7 +65,52 @@ class Discriminator(nn.Module) :
     def forward(self,x,noise=0.0) :
         return self.block(x+noise*torch.randn_like(x))
 
-class SimpleNetDenseINDepth3(nn.Module) :
+class ConvBlockINEDense(nn.Module) :
+    def __init__(self,n_ch,act='relu',ksize=3,norm='in',padding_mode='circular') :
+        super().__init__()
+
+        padding = (ksize-1)//2
+        
+        if act == 'lrelu' :
+            self.act = nn.LeakyReLU(0.2,True)
+        else : # default = ReLU
+            self.act = nn.ReLU(True)
+            
+        self.conv1 = nn.Conv2d(n_ch,n_ch,kernel_size=ksize,padding=padding,padding_mode=padding_mode)
+        self.conv2 = nn.Conv2d(2*n_ch,n_ch,kernel_size=ksize,padding=padding,padding_mode=padding_mode)
+        self.conv3 = nn.Conv2d(3*n_ch,n_ch,kernel_size=ksize,padding=padding,padding_mode=padding_mode)
+        self.conv4 = nn.Conv2d(4*n_ch,n_ch,kernel_size=ksize,padding=padding,padding_mode=padding_mode)
+        
+        self.norm = norm
+        if norm == 'in' :
+            self.norm1 = nn.InstanceNorm2d(n_ch,affine=True)
+            self.norm2 = nn.InstanceNorm2d(n_ch,affine=True)
+            self.norm3 = nn.InstanceNorm2d(n_ch,affine=True)
+    
+    def forward(self,x,g=None,b=None) :
+        x1 = self.conv1(x)
+        x1 = self.act(x1)
+        if self.norm == 'in' :
+            x1 = self.norm1(x1)
+
+        x2 = torch.cat([x1,x],dim=1)
+        x2 = self.conv2(x2)
+        x2 = self.act(x2)
+        if self.norm == 'in' :
+            x2 = self.norm2(x2)
+
+        x3 = torch.cat([x2,x1,x],dim=1)
+        x3 = self.conv3(x3)
+        x3 = self.act(x3)
+        if self.norm == 'in' :
+            x3 = self.norm3(x3)
+
+        x4 = torch.cat([x3,x2,x1,x],dim=1)
+        out = self.conv4(x4)
+
+        return out
+
+class Generator(nn.Module) :
     def __init__(self,in_ch=1,out_nch=1,ndf=32,ksize=7,depth=6) :
         super().__init__()
 
@@ -111,25 +154,3 @@ class SimpleNetDenseINDepth3(nn.Module) :
         x3 = self.block2(x2)
 
         return self.blockout(x3), self.blockmid(x2)
-
-def init_weights_small(m) :
-    L = list(m.modules())
-
-    for layer in L :
-        if isinstance(layer,nn.Sequential) :
-            for idx in range(len(layer)) :
-                init_weights_small(layer[idx])
-        elif isinstance(layer,nn.Conv2d) :
-            layer.weight.data.normal_(0.0,0.001)
-            layer.bias.data.fill_(0)
-
-def init_weights_kaiming(m) :
-    L = list(m.modules())
-
-    for layer in L :
-        if isinstance(layer,nn.Sequential) :
-            for idx in range(len(layer)) :
-                init_weights_kaiming(layer[idx])
-        elif isinstance(layer,nn.Conv2d) :
-            init.kaiming_normal_(layer.weight,mode='fan_out',nonlinearity='relu')
-            layer.bias.data.fill_(0)

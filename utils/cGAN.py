@@ -12,7 +12,6 @@ import numpy as np
 import cv2
 import argparse
 
-from blocks import *
 from network import *
 from misc import *
 from losses import *
@@ -25,7 +24,7 @@ class cGANwGT :
         self.params = read_json(json_dir)
         self.device = torch.device('cuda') if cuda else torch.device('cpu')
 
-        self.netG = SimpleNetDenseINDepth3(in_ch=2,out_nch=1,ndf=ndf,depth=depth)
+        self.netG = Generator(in_ch=2,out_nch=1,ndf=ndf,depth=depth)
         self.netD1 = Discriminator(in_ch=1)
         self.netD2 = Discriminator2(in_ch=1)
 

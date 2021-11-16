@@ -153,25 +153,3 @@ class HalftoneDataset(Dataset) :
         }
         
         return sample
-
-    
-# if __name__ == '__main__' :
-#     d = HalftoneDataset('../images_WED/','../results_WED/')
-
-#     for _,data in enumerate(d) :
-#         img = data['img']
-#         imgH = data['halftone']
-        
-#         print(img.shape)
-#         print(imgH.shape)
-
-#         img = img.squeeze().cpu().detach().numpy()
-#         imgH = imgH.squeeze().cpu().detach().numpy()
-
-#         plt.imsave('img.png',img,cmap='gray')
-
-#         plt.imsave('imgH.png',imgH,cmap='gray')
-        
-#         break
-    
-    
