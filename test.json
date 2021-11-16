@@ -1,0 +1,15 @@
+{
+	"datasets": {
+		"test": {
+			"root_img": "./test_img/",
+			"root_halftone": "./test_halftone/",
+			"img_type": ".png",
+			"n_workers": 1
+		}
+	},
+	
+	"solver": {
+		"ckp_path": "./checkpoints/epoch60.ckp",
+		"testpath": "./cGAN_test/"
+	}
+}
